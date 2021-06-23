@@ -2,43 +2,112 @@
 - hosts: all
   become: yes
   vars:
-    server_name: usmanhaider.dev
-    document_root: /var/www
-    app_root: html_demo_site-main
+    domain_name: usmanhaider.dev
+    letsencrypt_email: leo14haider@gmail.com
+    GIT_REPO: git@github.com:UsmanHaider15/node-demo.git
+    GIT_BRANCH: master
+    ROOT_DIRECTORY: /home/ubuntu/
+    CLONE_DEST: /home/ubuntu/node-demo
+  gather_facts: no
+
+  pre_tasks:
+    - raw: apt-get install -y python-simplejson
+
   tasks:
-    - name: Update apt cache and install Nginx
-      apt:
-        name: nginx
-        state: latest
-        update_cache: yes
+    - name: Upgrade system
+      apt: upgrade=dist update_cache=yes
 
-    - name: Copy website files to the server's document root
-      copy:
-        src: "{{ app_root }}"
-        dest: "{{ document_root }}"
-        mode: preserve
+    - name: Install nginx
+      apt: name=nginx state=latest
 
-    - name: Apply Nginx template
+    - name: install letsencrypt
+      apt: name=letsencrypt state=latest
+
+    - name: create letsencrypt directory
+      file: name=/var/www/letsencrypt state=directory
+
+    - name: Remove default nginx config
+      file: name=/etc/nginx/sites-enabled/default state=absent
+
+    - name: Install system nginx config
       template:
-        src: files/nginx.conf.j2
-        dest: /etc/nginx/sites-available/default
-      notify: Restart Nginx
+        src: templates/nginx.conf.j2
+        dest: /etc/nginx/nginx.conf
 
-    - name: Enable new site
-      file:
-        src: /etc/nginx/sites-available/default
-        dest: /etc/nginx/sites-enabled/default
-        state: link
-      notify: Restart Nginx
+    - name: Install nginx site for letsencrypt requests
+      template:
+        src: templates/nginx-http.j2
+        dest: /etc/nginx/sites-enabled/http
 
-    - name: Allow all access to tcp port 80
-      ufw:
-        rule: allow
-        port: "80"
-        proto: tcp
+    - name: Reload nginx to activate letsencrypt site
+      service: name=nginx state=restarted
 
-  handlers:
-    - name: Restart Nginx
-      service:
-        name: nginx
-        state: restarted
+    - name: Create letsencrypt certificate
+      shell: letsencrypt certonly -n --webroot -w /var/www/letsencrypt -m {{ letsencrypt_email }} --agree-tos -d {{ domain_name }}
+      args:
+        creates: /etc/letsencrypt/live/{{ domain_name }}
+
+    - name: Generate dhparams
+      shell: openssl dhparam -out /etc/nginx/dhparams.pem 2048
+      args:
+        creates: /etc/nginx/dhparams.pem
+
+    - name: Install nginx site for specified site
+      template:
+        src: templates/nginx-le.j2
+        dest: /etc/nginx/sites-enabled/le
+
+    - name: Reload nginx to activate specified site
+      service: name=nginx state=restarted
+
+    - name: Add letsencrypt cronjob for cert renewal
+      cron:
+        name: letsencrypt_renewal
+        special_time: weekly
+        job: letsencrypt --renew certonly -n --webroot -w /var/www/letsencrypt -m {{ letsencrypt_email }} --agree-tos -d {{ domain_name }} && service nginx reload
+
+    - name: Clone a private repository into node demo.
+      git:
+        repo: "{{ GIT_REPO }}"
+        version: "{{ GIT_BRANCH }}"
+        dest: "{{ CLONE_DEST }}"
+        accept_hostkey: yes
+      become: no
+
+    - name: Go to Root
+      shell: cd ~
+
+    - name: Download nodesource
+      get_url:
+        url: https://deb.nodesource.com/setup_14.x
+        dest: "{{ ROOT_DIRECTORY }}/nodesource_setup.sh"
+
+    - name: Run nodesource_setup.sh
+      shell: bash nodesource_setup.sh
+      args:
+        chdir: "{{ ROOT_DIRECTORY }}"
+
+    - name: Install Nodejs
+      apt:
+        name: nodejs
+        state: present
+
+    - name: Install Nodejs
+      shell: apt-get install nodejs -y
+
+    - name: Install build essentials
+      shell: apt-get install build-essential -y
+
+    - name: Install pm2
+      shell: npm install -g pm2
+
+    - name: NODE | Stop APP
+      shell: pm2 stop index
+      args:
+        chdir: "{{ CLONE_DEST }}"
+      ignore_errors: yes
+
+    - name: Run Application
+      shell: pm2 start index.js
+      args:
+        chdir: "{{ CLONE_DEST }}"
