@@ -2,12 +2,12 @@
 - hosts: all
   become: yes
   vars:
-    domain_name: usmanhaider.dev
-    letsencrypt_email: leo14haider@gmail.com
+    DOMAIN_NAME: usmanhaider.dev
+    LETSENCRYPT_EMAIL: leo14haider@gmail.com
     GIT_REPO: git@github.com:UsmanHaider15/node-demo.git
     GIT_BRANCH: master
-    ROOT_DIRECTORY: /home/ubuntu/
-    CLONE_DEST: /home/ubuntu/node-demo
+    USER: ubuntu
+    PROJECT_NAME: node-demo
   gather_facts: no
 
   pre_tasks:
@@ -31,7 +31,7 @@
 
     - name: Install system nginx config
       template:
-        src: templates/nginx.conf.j2
+        src: templates/nginx.conf
         dest: /etc/nginx/nginx.conf
 
     - name: Install nginx site for letsencrypt requests
@@ -43,9 +43,9 @@
       service: name=nginx state=restarted
 
     - name: Create letsencrypt certificate
-      shell: letsencrypt certonly -n --webroot -w /var/www/letsencrypt -m {{ letsencrypt_email }} --agree-tos -d {{ domain_name }}
+      shell: letsencrypt certonly -n --webroot -w /var/www/letsencrypt -m {{ LETSENCRYPT_EMAIL }} --agree-tos -d {{ DOMAIN_NAME }}
       args:
-        creates: /etc/letsencrypt/live/{{ domain_name }}
+        creates: /etc/letsencrypt/live/{{ DOMAIN_NAME }}
 
     - name: Generate dhparams
       shell: openssl dhparam -out /etc/nginx/dhparams.pem 2048
@@ -64,50 +64,50 @@
       cron:
         name: letsencrypt_renewal
         special_time: weekly
-        job: letsencrypt --renew certonly -n --webroot -w /var/www/letsencrypt -m {{ letsencrypt_email }} --agree-tos -d {{ domain_name }} && service nginx reload
+        job: letsencrypt --renew certonly -n --webroot -w /var/www/letsencrypt -m {{ LETSENCRYPT_EMAIL }} --agree-tos -d {{ DOMAIN_NAME }} && service nginx reload
 
     - name: Clone a private repository into node demo.
       git:
         repo: "{{ GIT_REPO }}"
         version: "{{ GIT_BRANCH }}"
-        dest: "{{ CLONE_DEST }}"
+        dest: "/home/{{ USER }}/{{ PROJECT_NAME }}"
         accept_hostkey: yes
       become: no
-
-    - name: Go to Root
-      shell: cd ~
 
     - name: Download nodesource
       get_url:
         url: https://deb.nodesource.com/setup_14.x
-        dest: "{{ ROOT_DIRECTORY }}/nodesource_setup.sh"
+        dest: "/home/{{ USER }}/nodesource_setup.sh"
 
     - name: Run nodesource_setup.sh
       shell: bash nodesource_setup.sh
       args:
-        chdir: "{{ ROOT_DIRECTORY }}"
+        chdir: "/home/{{ USER }}"
 
     - name: Install Nodejs
       apt:
         name: nodejs
         state: present
 
-    - name: Install Nodejs
-      shell: apt-get install nodejs -y
-
     - name: Install build essentials
-      shell: apt-get install build-essential -y
+      apt:
+        name: build-essential
+        state: present
 
-    - name: Install pm2
-      shell: npm install -g pm2
+    - name: Install pm2.
+      community.general.npm:
+        name: pm2
+        global: yes
+        state: present
 
     - name: NODE | Stop APP
-      shell: pm2 stop index
-      args:
-        chdir: "{{ CLONE_DEST }}"
+      become_user: "{{ USER }}"
+      shell: pm2 stop node_server
       ignore_errors: yes
 
     - name: Run Application
-      shell: pm2 start index.js
+      become_user: "{{ USER }}"
+      shell: pm2 start index.js --name node_server
       args:
-        chdir: "{{ CLONE_DEST }}"
+        chdir: "/home/{{ USER }}/{{ PROJECT_NAME }}"
+      ignore_errors: yes
