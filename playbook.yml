@@ -2,16 +2,13 @@
 - hosts: all
   become: yes
   vars:
-    DOMAIN_NAME: usmanhaider.dev
-    LETSENCRYPT_EMAIL: leo14haider@gmail.com
+    DOMAIN_NAME: example.com
+    LETSENCRYPT_EMAIL: usman.haider.developer@gmail.com
     GIT_REPO: git@github.com:UsmanHaider15/node-demo.git
     GIT_BRANCH: master
     USER: ubuntu
     PROJECT_NAME: node-demo
   gather_facts: no
-
-  pre_tasks:
-    - raw: apt-get install -y python-simplejson
 
   tasks:
     - name: Upgrade system
@@ -94,7 +91,7 @@
         name: build-essential
         state: present
 
-    - name: Install pm2.
+    - name: Install pm2
       community.general.npm:
         name: pm2
         global: yes
